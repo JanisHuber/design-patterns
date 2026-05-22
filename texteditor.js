@@ -1,68 +1,123 @@
 // texteditor.ts
-var State = /* @__PURE__ */ (function (State2) {
-  State2[(State2["CleanUnsaved"] = 0)] = "CleanUnsaved";
-  State2[(State2["CleanSaved"] = 1)] = "CleanSaved";
-  State2[(State2["DirtyUnsaved"] = 2)] = "DirtyUnsaved";
-  State2[(State2["DirtySaved"] = 3)] = "DirtySaved";
-  return State2;
-})(State || {});
+var CleanUnsaved = class {
+  getLabel() {
+    return "_";
+  }
+  onInput(_editor) {
+    return new DirtyUnsaved();
+  }
+  onSave(editor2) {
+    const filename = promptFilename();
+    if (!filename) return this;
+    localStorage.setItem(filename, editor2.getContent());
+    return new CleanSaved(filename);
+  }
+};
+var CleanSaved = class _CleanSaved {
+  filename;
+  constructor(filename) {
+    this.filename = filename;
+  }
+  getLabel() {
+    return this.filename;
+  }
+  onInput(_editor) {
+    return new DirtySaved(this.filename);
+  }
+  onSave(editor2) {
+    localStorage.setItem(this.filename, editor2.getContent());
+    return new _CleanSaved(this.filename);
+  }
+};
+var DirtyUnsaved = class {
+  getLabel() {
+    return "*";
+  }
+  onInput(_editor) {
+    return this;
+  }
+  onSave(editor2) {
+    const filename = promptFilename();
+    if (!filename) return this;
+    localStorage.setItem(filename, editor2.getContent());
+    return new CleanSaved(filename);
+  }
+};
+var DirtySaved = class {
+  filename;
+  constructor(filename) {
+    this.filename = filename;
+  }
+  getLabel() {
+    return `${this.filename} *`;
+  }
+  onInput(_editor) {
+    return this;
+  }
+  onSave(editor2) {
+    localStorage.setItem(this.filename, editor2.getContent());
+    return new CleanSaved(this.filename);
+  }
+};
+var Editor = class {
+  textArea;
+  state;
+  constructor(textArea2) {
+    this.textArea = textArea2;
+    this.state = new CleanUnsaved();
+  }
+  getContent() {
+    return this.textArea.value;
+  }
+  setContent(value) {
+    this.textArea.value = value;
+  }
+  input() {
+    this.transitionTo(this.state.onInput(this));
+  }
+  save() {
+    this.transitionTo(this.state.onSave(this));
+  }
+  saveAs() {
+    const filename = promptFilename();
+    if (!filename) return;
+    localStorage.setItem(filename, this.getContent());
+    this.transitionTo(new CleanSaved(filename));
+  }
+  newDoc() {
+    this.setContent("");
+    this.transitionTo(new CleanUnsaved());
+  }
+  loadFile(filename) {
+    this.setContent(localStorage.getItem(filename) || "");
+    this.transitionTo(new CleanSaved(filename));
+  }
+  transitionTo(next) {
+    this.state = next;
+    setStateLabel(this.state.getLabel());
+  }
+};
+function promptFilename() {
+  let filename = prompt("Enter a File Name", "");
+  if (!filename || filename.trim() === "") return null;
+  if (!filename.endsWith(".txt")) filename = filename + ".txt";
+  return filename;
+}
 var textArea = document.getElementById("text");
-var state = State.CleanUnsaved;
-var openFile = "";
+var editor = new Editor(textArea);
 document.addEventListener("DOMContentLoaded", () => {
   showFiles(listFiles(), "files-list");
-  textArea.addEventListener("input", () => {
-    if (state == State.CleanSaved) {
-      state = State.DirtySaved;
-      setStateLabel(`${openFile} *`);
-    } else if (state == State.CleanUnsaved) {
-      state = State.DirtyUnsaved;
-      setStateLabel("*");
-    }
+  textArea.addEventListener("input", () => editor.input());
+  document.getElementById("save-as-button")?.addEventListener("click", () => {
+    editor.saveAs();
+    showFiles(listFiles(), "files-list");
   });
-  const saveAsButton = document.getElementById("save-as-button");
-  saveAsButton?.addEventListener("click", () => {
-    const content = textArea.value;
-    let filename = prompt("Enter a File Name", "");
-    if (filename?.trim() != "") {
-      if (!filename?.endsWith(".txt")) {
-        filename = filename + ".txt";
-      }
-      localStorage.setItem(filename, content);
-      state = State.CleanSaved;
-      openFile = filename;
-      setStateLabel(filename);
-      showFiles(listFiles(), "files-list");
-    }
+  document.getElementById("save-button")?.addEventListener("click", () => {
+    editor.save();
+    showFiles(listFiles(), "files-list");
   });
-  const saveButton = document.getElementById("save-button");
-  saveButton?.addEventListener("click", () => {
-    const content = textArea.value;
-    if (state == State.CleanSaved || state == State.DirtySaved) {
-      localStorage.setItem(openFile, content);
-      state = State.CleanSaved;
-      setStateLabel(openFile);
-      showFiles(listFiles(), "files-list");
-    } else {
-      let filename = prompt("Enter a File Name", "");
-      if (filename?.trim() != "") {
-        if (!filename?.endsWith(".txt")) {
-          filename = filename + ".txt";
-        }
-        localStorage.setItem(filename, content);
-        state = State.CleanSaved;
-        openFile = filename;
-        setStateLabel(filename);
-        showFiles(listFiles(), "files-list");
-      }
-    }
-  });
-  const newButton = document.getElementById("new-button");
-  newButton?.addEventListener("click", () => {
-    state = State.CleanUnsaved;
-    textArea.value = "";
-    openFile = "";
-    setStateLabel("_");
+  document.getElementById("new-button")?.addEventListener("click", () => {
+    editor.newDoc();
   });
   document.addEventListener("contextmenu", (event) => {
     alert("Wanna steal my source code, huh!?");
@@ -88,13 +143,7 @@ function showFiles(files, parentId) {
     item.appendChild(link);
     parent?.append(item);
     link.addEventListener("click", () => {
-      const content = localStorage.getItem(file);
-      openFile = file;
-      if (textArea != null) {
-        textArea.value = content || "";
-      }
-      state = State.CleanSaved;
-      setStateLabel(file);
+      editor.loadFile(file);
     });
   }
 }
